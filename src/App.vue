@@ -20,6 +20,13 @@
         Planos
       </router-link>
 
+      <p class="px-3 pt-4 pb-1 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Plataforma</p>
+
+      <router-link to="/workflow-dependencies" class="nav-link" active-class="nav-link-active">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+        Dependências Python
+      </router-link>
+
       <p class="px-3 pt-4 pb-1 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Sistema</p>
 
       <router-link to="/users" class="nav-link" active-class="nav-link-active">

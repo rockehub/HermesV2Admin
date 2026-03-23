@@ -5,6 +5,7 @@ import TenantsPage from './pages/TenantsPage.vue'
 import TenantDetailPage from './pages/TenantDetailPage.vue'
 import PlansPage from './pages/PlansPage.vue'
 import MasterUsersPage from './pages/MasterUsersPage.vue'
+import WorkflowDependenciesPage from './pages/WorkflowDependenciesPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,7 +15,8 @@ const router = createRouter({
     { path: '/tenants', name: 'tenants', component: TenantsPage, meta: { auth: true } },
     { path: '/tenants/:id', name: 'tenant-detail', component: TenantDetailPage, meta: { auth: true } },
     { path: '/plans', name: 'plans', component: PlansPage, meta: { auth: true } },
-    { path: '/users', name: 'users', component: MasterUsersPage, meta: { auth: true } }
+    { path: '/users', name: 'users', component: MasterUsersPage, meta: { auth: true } },
+    { path: '/workflow-dependencies', name: 'workflow-dependencies', component: WorkflowDependenciesPage, meta: { auth: true } }
   ]
 })
 
