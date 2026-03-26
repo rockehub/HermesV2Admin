@@ -38,6 +38,7 @@ interface DependencyRequest {
   reviewNotes: string | null
   requestedAt: string
   installedAt: string | null
+  signature: { moduleName?: string; members?: { name: string; kind: string }[] } | null
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -116,6 +117,23 @@ async function refreshAnalysis() {
   } finally { actionLoading.value = false }
 }
 
+const signatureLoading = ref(false)
+const signatureMembers = ref<number | null>(null)
+
+async function refreshSignature() {
+  if (!selected.value) return
+  signatureLoading.value = true
+  signatureMembers.value = null
+  try {
+    const res = await api.post(`/api/v1/master/workflow-dependencies/${selected.value.id}/refresh-signature`)
+    const updated = res.data.data ?? res.data
+    const idx = requests.value.findIndex(r => r.id === updated.id)
+    if (idx !== -1) requests.value[idx] = updated
+    selected.value = updated
+    signatureMembers.value = (updated.signature?.members ?? []).length
+  } finally { signatureLoading.value = false }
+}
+
 function select(r: DependencyRequest) {
   selected.value = r
   reviewNotes.value = r.reviewNotes ?? ''
@@ -157,7 +175,7 @@ const RISK_CLASS: Record<string, string> = {
 <template>
   <div>
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center justify-between mb-5">
       <div>
         <h1 class="text-xl font-bold text-slate-900">Dependências Python</h1>
         <p class="text-sm text-slate-500 mt-0.5">Solicitações de pacotes PyPI dos tenants</p>
@@ -170,7 +188,7 @@ const RISK_CLASS: Record<string, string> = {
       <!-- Left: list -->
       <div class="flex-1 min-w-0">
         <!-- Filter -->
-        <div class="flex gap-2 mb-4">
+        <div class="flex flex-wrap gap-2 mb-4">
           <button
             v-for="s in (['', 'PENDING', 'APPROVED', 'INSTALLED', 'REJECTED', 'FAILED'] as const)"
             :key="s"
@@ -185,49 +203,51 @@ const RISK_CLASS: Record<string, string> = {
         <div class="card p-0 overflow-hidden">
           <div v-if="loading" class="p-8 text-center text-sm text-slate-400">Carregando...</div>
           <div v-else-if="!filtered.length" class="p-8 text-center text-sm text-slate-400">Nenhuma solicitação encontrada</div>
-          <table v-else class="data-table">
-            <thead>
-              <tr>
-                <th>Pacote</th>
-                <th>Tenant</th>
-                <th>Risco</th>
-                <th>Status</th>
-                <th>Solicitado em</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="r in filtered"
-                :key="r.id"
-                class="cursor-pointer hover:bg-slate-50 transition"
-                :class="selected?.id === r.id ? 'bg-teal-50' : ''"
-                @click="select(r)"
-              >
-                <td>
-                  <span class="font-mono text-sm font-medium text-slate-900">{{ r.packageName }}</span>
-                  <span v-if="r.packageVersion" class="ml-1.5 text-xs text-slate-400">{{ r.packageVersion }}</span>
-                </td>
-                <td class="text-xs text-slate-500 font-mono">{{ r.tenantId.slice(0, 8) }}…</td>
-                <td>
-                  <span v-if="r.riskLevel" class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="RISK_CLASS[r.riskLevel]">
-                    {{ r.riskLevel }}
-                  </span>
-                  <span v-else class="text-xs text-slate-300">—</span>
-                </td>
-                <td>
-                  <span class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="STATUS_CLASS[r.status]">
-                    {{ STATUS_LABEL[r.status] }}
-                  </span>
-                </td>
-                <td class="text-xs text-slate-500">{{ fmtDate(r.requestedAt) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-else class="max-h-[calc(100vh-14rem)] overflow-y-auto">
+            <table class="data-table">
+              <thead class="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#e2e8f0]">
+                <tr>
+                  <th>Pacote</th>
+                  <th>Tenant</th>
+                  <th>Risco</th>
+                  <th>Status</th>
+                  <th>Solicitado em</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="r in filtered"
+                  :key="r.id"
+                  class="cursor-pointer hover:bg-slate-50 transition"
+                  :class="selected?.id === r.id ? 'bg-teal-50' : ''"
+                  @click="select(r)"
+                >
+                  <td>
+                    <span class="font-mono text-sm font-medium text-slate-900">{{ r.packageName }}</span>
+                    <span v-if="r.packageVersion" class="ml-1.5 text-xs text-slate-400">{{ r.packageVersion }}</span>
+                  </td>
+                  <td class="text-xs text-slate-500 font-mono">{{ r.tenantId.slice(0, 8) }}…</td>
+                  <td>
+                    <span v-if="r.riskLevel" class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="RISK_CLASS[r.riskLevel]">
+                      {{ r.riskLevel }}
+                    </span>
+                    <span v-else class="text-xs text-slate-300">—</span>
+                  </td>
+                  <td>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-semibold" :class="STATUS_CLASS[r.status]">
+                      {{ STATUS_LABEL[r.status] }}
+                    </span>
+                  </td>
+                  <td class="text-xs text-slate-500">{{ fmtDate(r.requestedAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <!-- Right: detail panel -->
-      <div v-if="selected" class="w-96 shrink-0 space-y-4">
+      <!-- Right: detail panel — sticky with its own scroll -->
+      <div v-if="selected" class="w-96 shrink-0 sticky top-0 max-h-[calc(100vh-6rem)] overflow-y-auto space-y-4 pb-4 pr-0.5">
 
         <!-- Package info -->
         <div class="card">
@@ -243,15 +263,25 @@ const RISK_CLASS: Record<string, string> = {
 
           <!-- PyPI data -->
           <div v-if="selected.pypiInfo && !selected.pypiInfo.error" class="space-y-2 text-sm">
-            <p v-if="selected.pypiInfo.summary" class="text-slate-600">{{ selected.pypiInfo.summary }}</p>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              <div><span class="text-slate-400">Autor</span><br><span class="font-medium">{{ selected.pypiInfo.author || '—' }}</span></div>
-              <div><span class="text-slate-400">Licença</span><br><span class="font-medium">{{ selected.pypiInfo.license || '—' }}</span></div>
-              <div><span class="text-slate-400">Versão mais recente</span><br><span class="font-medium">{{ selected.pypiInfo.latestVersion || '—' }}</span></div>
-              <div><span class="text-slate-400">Downloads/mês</span><br>
-                <span class="font-medium" :class="(selected.pypiInfo.downloadsLastMonth ?? 0) < 1000 ? 'text-amber-600' : 'text-emerald-600'">
+            <p v-if="selected.pypiInfo.summary" class="text-slate-600 text-xs leading-relaxed line-clamp-3">{{ selected.pypiInfo.summary }}</p>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              <div>
+                <span class="text-slate-400">Autor</span>
+                <p class="font-medium truncate" :title="String(selected.pypiInfo.author || '')">{{ selected.pypiInfo.author || '—' }}</p>
+              </div>
+              <div>
+                <span class="text-slate-400">Licença</span>
+                <p class="font-medium truncate" :title="String(selected.pypiInfo.license || '')">{{ selected.pypiInfo.license || '—' }}</p>
+              </div>
+              <div>
+                <span class="text-slate-400">Última versão</span>
+                <p class="font-medium">{{ selected.pypiInfo.latestVersion || '—' }}</p>
+              </div>
+              <div>
+                <span class="text-slate-400">Downloads/mês</span>
+                <p class="font-medium" :class="(selected.pypiInfo.downloadsLastMonth ?? 0) < 1000 ? 'text-amber-600' : 'text-emerald-600'">
                   {{ fmtDownloads(selected.pypiInfo.downloadsLastMonth) }}
-                </span>
+                </p>
               </div>
             </div>
             <a v-if="selected.pypiInfo.releaseUrl" :href="selected.pypiInfo.releaseUrl" target="_blank"
@@ -291,7 +321,7 @@ const RISK_CLASS: Record<string, string> = {
         <!-- Justification -->
         <div class="card">
           <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Justificativa do tenant</h3>
-          <p class="text-sm text-slate-700">{{ selected.justification }}</p>
+          <p class="text-xs text-slate-700 leading-relaxed line-clamp-4">{{ selected.justification }}</p>
           <p class="text-xs text-slate-400 mt-2">Solicitado em {{ fmtDate(selected.requestedAt) }}</p>
           <p v-if="selected.installedAt" class="text-xs text-emerald-600 mt-0.5">Instalado em {{ fmtDate(selected.installedAt) }}</p>
         </div>
@@ -334,8 +364,55 @@ const RISK_CLASS: Record<string, string> = {
           ⏳ Instalação em andamento…
         </div>
 
+        <!-- Autocomplete signature (INSTALLED only) -->
+        <div v-if="selected.status === 'INSTALLED'" class="card">
+          <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Assinatura (Autocomplete)</h3>
+          <div class="flex items-center justify-between">
+            <div class="text-sm text-slate-700">
+              <template v-if="selected.signature?.members?.length">
+                <span class="font-medium text-emerald-600">{{ selected.signature.members.length }}</span>
+                <span class="text-slate-500"> membros disponíveis</span>
+                <span v-if="selected.signature.moduleName" class="ml-1 text-xs text-slate-400">({{ selected.signature.moduleName }})</span>
+              </template>
+              <span v-else class="text-amber-600 text-xs">
+                Nenhum membro indexado — autocomplete indisponível
+              </span>
+            </div>
+            <button
+              class="shrink-0 ml-3 flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition hover:bg-teal-100 disabled:opacity-50"
+              :disabled="signatureLoading"
+              @click="refreshSignature"
+            >
+              <svg v-if="!signatureLoading" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              <svg v-else class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              {{ signatureLoading ? 'Carregando…' : 'Recarregar' }}
+            </button>
+          </div>
+          <p v-if="signatureMembers !== null && !signatureLoading" class="mt-2 text-xs text-emerald-600">
+            ✓ Assinatura atualizada — {{ signatureMembers }} membros indexados
+          </p>
+          <!-- Member preview (first 8) -->
+          <div v-if="selected.signature?.members?.length" class="mt-2 flex flex-wrap gap-1">
+            <span
+              v-for="m in selected.signature.members.slice(0, 8)"
+              :key="m.name"
+              class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600"
+              :title="m.kind"
+            >{{ m.name }}</span>
+            <span v-if="selected.signature.members.length > 8" class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
+              +{{ selected.signature.members.length - 8 }} mais
+            </span>
+          </div>
+        </div>
+
       </div>
-      <div v-else class="w-96 shrink-0 card flex items-center justify-center h-48 text-sm text-slate-400">
+      <div v-else class="w-96 shrink-0 sticky top-0 card flex items-center justify-center h-48 text-sm text-slate-400">
         Selecione uma solicitação
       </div>
     </div>
